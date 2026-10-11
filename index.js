@@ -1,6 +1,7 @@
 ﻿require("dotenv").config();
 const dns = require("dns");
-dns.setServers(["8.8.8.8", "1.1.1.1"]);
+if (!process.env.VERCEL) dns.setServers(["8.8.8.8", "1.1.1.1"]);
+
 const jwt = require("jsonwebtoken");
 const express = require('express');
 const cors = require('cors');
@@ -14,9 +15,31 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('Connect to the MongoDB!'))
-  .catch((err) => console.log('Connection error:', err));
+let connectPromise = null;
+
+function connectDB() {
+  if (mongoose.connection.readyState === 1) return Promise.resolve();
+  if (!connectPromise) {
+    connectPromise = mongoose
+      .connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 15000 })
+      .then(() => console.log('Connect to the MongoDB!'))
+      .catch((err) => {
+        connectPromise = null;
+        console.log('Connection error:', err);
+        throw err;
+      });
+  }
+  return connectPromise;
+}
+
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    res.status(500).json({ message: 'Database connection failed', error: err.message });
+  }
+});
 
 const blogSchema = new mongoose.Schema({
   title: { type: String, required: true },
